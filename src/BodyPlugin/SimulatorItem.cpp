@@ -254,7 +254,9 @@ public:
     double logTimeStep;
     
     stdx::optional<int> extForceFunctionId;
+    stdx::optional<int> extForceListFunctionId;
     std::mutex extForceMutex;
+    std::mutex extForceListMutex;
     struct ExtForceInfo {
         Link* link;
         Vector3 point;
@@ -262,6 +264,7 @@ public:
         double time;
     };
     ExtForceInfo extForceInfo;
+    std::vector<ExtForceInfo> extForceListInfo;
 
     stdx::optional<int> virtualElasticStringFunctionId;
     std::mutex virtualElasticStringMutex;
@@ -307,6 +310,8 @@ public:
     void onSimulationLoopStopped();
     void setExternalForce(BodyItem* bodyItem, Link* link, const Vector3& point, const Vector3& f, double time);
     void doSetExternalForce();
+    void addExternalForceList(BodyItem* bodyItem, Link* link, const Vector3& point, const Vector3& f, double time);
+    void doSetExternalForceList();
     void setVirtualElasticString(
         BodyItem* bodyItem, Link* link, const Vector3& attachmentPoint, const Vector3& endPoint);
     void setVirtualElasticStringForce();
@@ -1595,6 +1600,7 @@ bool SimulatorItemImpl::startSimulation(bool doReset)
     }
 
     extForceFunctionId = stdx::nullopt;
+    extForceListFunctionId = stdx::nullopt;
     virtualElasticStringFunctionId = stdx::nullopt;
 
     cloneMap.replacePendingObjects();
@@ -2483,6 +2489,68 @@ void SimulatorItemImpl::doSetExternalForce()
     }
 }
 
+
+void SimulatorItem::setExternalForceList(
+    BodyItem* bodyItem1, Link* link1, const Vector3& point1, const Vector3& f1, double time1,
+    BodyItem* bodyItem2, Link* link2, const Vector3& point2, const Vector3& f2, double time2)
+{
+  impl->extForceListInfo.clear();
+  impl->addExternalForceList(bodyItem1, link1, point1, f1, time1);
+  impl->addExternalForceList(bodyItem2, link2, point2, f2, time2);
+
+  if (impl->extForceListInfo.size() > 0) {
+    if(!impl->extForceListFunctionId){
+      impl->extForceListFunctionId =
+          addPreDynamicsFunction(
+              [&](){ impl->doSetExternalForceList(); });
+    }
+  }
+}
+
+
+void SimulatorItemImpl::addExternalForceList(BodyItem* bodyItem, Link* link, const Vector3& point, const Vector3& f, double time)
+{
+  if(bodyItem && link){
+    SimulationBody* simBody = self->findSimulationBody(bodyItem);
+    if(simBody){
+      {
+        std::lock_guard<std::mutex> lock(extForceListMutex);
+        ExtForceInfo info;
+        info.link = simBody->body()->link(link->index());
+        info.point = point;
+        info.f = f;
+        info.time = time;
+        extForceListInfo.push_back(info);
+      }
+    }
+  }
+}
+
+
+void SimulatorItem::clearExternalForceList()
+{
+  if(impl->extForceListFunctionId){
+    removePreDynamicsFunction(*impl->extForceListFunctionId);
+    impl->extForceListFunctionId = stdx::nullopt;
+  }
+}
+
+
+void SimulatorItemImpl::doSetExternalForceList()
+{
+  std::lock_guard<std::mutex> lock(extForceListMutex);
+  bool enabled = false;
+  for (auto& info : extForceListInfo) {
+    if (info.time > 0.0) {
+      info.link->addExternalForce(info.f, info.point);
+      info.time -= worldTimeStep_;
+      enabled = true;
+    }
+  }
+  if (!enabled) {
+    self->clearExternalForceList();
+  }
+}
 
 void SimulatorItem::setVirtualElasticString
 (BodyItem* bodyItem, Link* link, const Vector3& attachmentPoint, const Vector3& endPoint)

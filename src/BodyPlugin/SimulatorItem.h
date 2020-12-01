@@ -181,6 +181,16 @@ public:
     */
     virtual void setExternalForce(BodyItem* bodyItem, Link* link, const Vector3& point, const Vector3& f, double time = 0.0);
     virtual void clearExternalForces();
+
+    /**
+       @param point link local position to apply the force
+       @param f linear force to apply in global coordinate
+       \todo pass the arguments as std::vector
+    */
+    virtual void setExternalForceList(
+        BodyItem* bodyItem1, Link* link1, const Vector3& point1, const Vector3& f1, double time1,
+        BodyItem* bodyItem2, Link* link2, const Vector3& point2, const Vector3& f2, double time2);
+    virtual void clearExternalForceList();
     
     /**
        @param attachmentPoint link local position
